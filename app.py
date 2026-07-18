@@ -1,4 +1,4 @@
-# app.py - Full Onda Booking Bot with Webhook + Telegram + Multiple Courts (Sabay)
+# app.py - Full Onda Booking Bot with Webhook + Telegram + One by One Booking
 from flask import Flask, request, jsonify
 from playwright.sync_api import sync_playwright
 import requests
@@ -120,99 +120,54 @@ def get_all_available_slots(data, target_times, time_display, court_names):
     
     return available_slots
 
-def select_slot_fast(page, slot):
-    """Pumili ng slot - MAS MABILIS at DIRECT"""
+def select_slot(page, slot):
+    """Pumili ng isang slot sa UI"""
     try:
         court = slot['court']
         display = slot['display']
         print(f"  Selecting: {court} @ {display}")
         
-        # Direct click sa button - gamit ang exact text
-        # Ang button ay may text na "Court X @ Time"
-        selector = f'button:has-text("{court} @ {display}")'
+        # I-try ang iba't-ibang paraan
+        selectors = [
+            f'button:has-text("{court} @ {display}")',
+            f'button:has-text("{court}")',
+            f'button:has-text("{display}")'
+        ]
         
-        btn = page.locator(selector).first
-        if btn.count() > 0:
-            btn.click(timeout=2000)
-            page.wait_for_timeout(300)
-            print(f"    ✓ Selected!")
-            return True
+        for selector in selectors:
+            try:
+                btn = page.locator(selector).first
+                if btn.count() > 0:
+                    text = btn.inner_text().lower()
+                    if "available" in text or "select" in text:
+                        btn.click(timeout=2000)
+                        page.wait_for_timeout(300)
+                        print(f"    ✓ Selected!")
+                        return True
+            except:
+                pass
         
-        # Alternative: Hanapin ang button na may court at time
-        selector2 = f'button:has-text("{court}")'
-        btns = page.locator(selector2).all()
-        for b in btns:
-            text = b.inner_text()
-            if display in text and "available" in text.lower():
-                b.click(timeout=2000)
-                page.wait_for_timeout(300)
-                print(f"    ✓ Selected! (alt)")
-                return True
+        # Hanapin ang button na may court name at available
+        try:
+            btns = page.locator(f'button:has-text("{court}")').all()
+            for b in btns:
+                text = b.inner_text()
+                if display in text and ("available" in text.lower() or "select" in text.lower()):
+                    b.click(timeout=2000)
+                    page.wait_for_timeout(300)
+                    print(f"    ✓ Selected! (alt)")
+                    return True
+        except:
+            pass
         
-        print(f"    ✗ Cannot find button")
+        print(f"    ✗ Cannot find button for {court} @ {display}")
         return False
     except Exception as e:
         print(f"    ✗ Error: {e}")
         return False
 
-def select_multiple_slots(page, slots_to_book, date):
-    """Pumili ng multiple slots nang sabay - WITHOUT triggering Proceed agad"""
-    try:
-        print(f"\n📌 SELECTING {len(slots_to_book)} COURT(S) SABAY!")
-        
-        # I-click ang calendar para makita ang slots
-        page.get_by_label("Select booking date").click()
-        page.wait_for_timeout(1000)
-        
-        # I-click ang date
-        date_btn = page.locator(f'button[data-day="{date}"]').first
-        if date_btn.count() > 0 and not date_btn.is_disabled():
-            date_btn.click()
-            page.wait_for_timeout(1500)
-        
-        # Piliin ang lahat ng slots (sabay-sabay)
-        for idx, slot in enumerate(slots_to_book, 1):
-            print(f"\n  [{idx}] Selecting: {slot['court']} @ {slot['display']}")
-            
-            # Hanapin ang button
-            selector = f'button:has-text("{slot["court"]} @ {slot["display"]}")'
-            btn = page.locator(selector).first
-            
-            if btn.count() > 0:
-                # I-check kung available
-                if "available" in btn.inner_text().lower():
-                    btn.click(timeout=2000)
-                    page.wait_for_timeout(300)
-                    print(f"    ✓ Selected!")
-                else:
-                    print(f"    ✗ Not available anymore!")
-                    return False
-            else:
-                # Alternative selector
-                alt_selector = f'button:has-text("{slot["court"]}")'
-                btns = page.locator(alt_selector).all()
-                found = False
-                for b in btns:
-                    text = b.inner_text()
-                    if slot["display"] in text and "available" in text.lower():
-                        b.click(timeout=2000)
-                        page.wait_for_timeout(300)
-                        print(f"    ✓ Selected! (alt)")
-                        found = True
-                        break
-                if not found:
-                    print(f"    ✗ Cannot find button")
-                    return False
-        
-        print(f"\n✅ All {len(slots_to_book)} slots selected!")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error selecting slots: {e}")
-        return False
-
 def click_proceed_after_select(page):
-    """Hanapin at i-click ang Proceed button"""
+    """Hanapin at i-click ang Proceed button pagkatapos pumili ng court"""
     try:
         proceed_btn = page.locator('button:has-text("Proceed")').first
         
@@ -238,6 +193,8 @@ def fill_booking_form(page, name, phone, email):
             name_input.fill("")
             name_input.fill(name)
             print(f"✓ Name filled: {name}")
+        else:
+            print("✗ Cannot find Full Name input")
         
         page.wait_for_timeout(500)
         
@@ -248,6 +205,14 @@ def fill_booking_form(page, name, phone, email):
             phone_input.fill("")
             phone_input.fill(phone)
             print(f"✓ Phone filled: {phone}")
+        else:
+            print("✗ Cannot find Phone Number input")
+            phone_input_alt = page.locator('input[type="tel"]').first
+            if phone_input_alt.count() > 0:
+                phone_input_alt.click()
+                phone_input_alt.fill("")
+                phone_input_alt.fill(phone)
+                print(f"✓ Phone filled (alternative): {phone}")
         
         page.wait_for_timeout(500)
         
@@ -258,9 +223,17 @@ def fill_booking_form(page, name, phone, email):
             email_input.fill("")
             email_input.fill(email)
             print(f"✓ Email filled: {email}")
+        else:
+            print("✗ Cannot find Email Address input")
+            email_input_alt = page.locator('input[type="email"]').first
+            if email_input_alt.count() > 0:
+                email_input_alt.click()
+                email_input_alt.fill("")
+                email_input_alt.fill(email)
+                print(f"✓ Email filled (alternative): {email}")
         
         page.wait_for_timeout(500)
-        print("  Waiting 3 seconds...")
+        print("  Waiting 3 seconds before clicking Proceed...")
         time.sleep(3)
         
         return True
@@ -288,7 +261,7 @@ def click_form_proceed(page):
 def click_terms_and_proceed(page):
     """I-click ang terms checkbox at Proceed button"""
     try:
-        print("  Waiting 2 seconds...")
+        print("  Waiting 2 seconds before clicking Terms checkbox...")
         time.sleep(2)
         
         print("Clicking Terms checkbox...")
@@ -296,6 +269,8 @@ def click_terms_and_proceed(page):
         if terms_checkbox.count() > 0:
             terms_checkbox.click()
             print("✓ Terms checkbox clicked!")
+        else:
+            print("✗ Cannot find Terms checkbox")
         
         page.wait_for_timeout(500)
         
@@ -337,6 +312,7 @@ def select_qrph_payment(page):
             page.wait_for_timeout(3000)
             print("✓ QR code should be visible now!")
             
+            # 🔥 TAKE SCREENSHOT OF QR CODE
             screenshot = page.screenshot(full_page=False)
             send_telegram_photo(
                 screenshot,
@@ -352,10 +328,10 @@ def select_qrph_payment(page):
         return False
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN BOOKING FUNCTION
+# MAIN BOOKING FUNCTION - ONE BY ONE
 # ═══════════════════════════════════════════════════════════════
 def do_booking(trigger_data):
-    """Execute the full booking process"""
+    """Execute the full booking process - ONE BY ONE"""
     
     date = trigger_data.get('date')
     slots = trigger_data.get('slots', [])
@@ -375,11 +351,6 @@ def do_booking(trigger_data):
         page = browser.new_page()
         
         try:
-            print("Opening booking page...")
-            page.goto("https://app.onda.fit/book/thirsty-pickle", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=60000)
-            print("✓ Page loaded successfully!")
-            
             # ═══════════════════════════════════════════════════════════
             # COURT NAMES MAPPING
             # ═══════════════════════════════════════════════════════════
@@ -407,8 +378,13 @@ def do_booking(trigger_data):
             }
             
             # ═══════════════════════════════════════════════════════════
-            # CHECK AVAILABILITY VIA API
+            # OPEN PAGE AND CHECK AVAILABILITY
             # ═══════════════════════════════════════════════════════════
+            print("Opening booking page...")
+            page.goto("https://app.onda.fit/book/thirsty-pickle", timeout=60000)
+            page.wait_for_load_state("networkidle", timeout=60000)
+            print("✓ Page loaded successfully!")
+            
             date_api = datetime.strptime(date, "%m/%d/%Y").strftime("%Y-%m-%d")
             print(f"Kumukuha ng availability para sa {date_api}...")
             data = get_availability(page, date_api)
@@ -457,82 +433,144 @@ def do_booking(trigger_data):
                 return
             
             # ═══════════════════════════════════════════════════════════
-            # SELECT ALL SLOTS SABAY (BAGO MAG PROCEED)
+            # BOOK ONE BY ONE
             # ═══════════════════════════════════════════════════════════
-            if not select_multiple_slots(page, slots_to_book, date):
-                send_telegram_message("❌ Failed to select slots!")
-                browser.close()
-                return
+            booked_slots = []
             
-            take_screenshot(page, "step1_all_slots_selected.png")
+            for idx, selected_slot in enumerate(slots_to_book, 1):
+                print(f"\n{'='*50}")
+                print(f"📌 BOOKING #{idx}: {selected_slot['court']} @ {selected_slot['display']}")
+                print('='*50)
+                
+                # I-click ang calendar at piliin ang date
+                try:
+                    page.get_by_label("Select booking date").click()
+                    page.wait_for_timeout(1000)
+                    date_btn = page.locator(f'button[data-day="{date}"]').first
+                    if date_btn.count() > 0 and not date_btn.is_disabled():
+                        date_btn.click()
+                        page.wait_for_timeout(1500)
+                    else:
+                        print("⚠️ Date button not found, reloading page...")
+                        page.goto("https://app.onda.fit/book/thirsty-pickle", timeout=60000)
+                        page.wait_for_load_state("networkidle", timeout=60000)
+                        page.get_by_label("Select booking date").click()
+                        page.wait_for_timeout(1000)
+                        date_btn = page.locator(f'button[data-day="{date}"]').first
+                        if date_btn.count() > 0 and not date_btn.is_disabled():
+                            date_btn.click()
+                            page.wait_for_timeout(1500)
+                except Exception as e:
+                    print(f"⚠️ Error selecting date: {e}")
+                    page.goto("https://app.onda.fit/book/thirsty-pickle", timeout=60000)
+                    page.wait_for_load_state("networkidle", timeout=60000)
+                    page.get_by_label("Select booking date").click()
+                    page.wait_for_timeout(1000)
+                    date_btn = page.locator(f'button[data-day="{date}"]').first
+                    if date_btn.count() > 0 and not date_btn.is_disabled():
+                        date_btn.click()
+                        page.wait_for_timeout(1500)
+                
+                # STEP 1: Select slot
+                print(f"\n[STEP 1] Selecting slot...")
+                if select_slot(page, selected_slot):
+                    print("✓ Slot selected!")
+                    page.wait_for_timeout(1000)
+                    
+                    take_screenshot(page, f"step1_slot_selected_{idx}.png")
+                    
+                    # STEP 2: Click Proceed
+                    print(f"\n[STEP 2] Clicking Proceed...")
+                    if click_proceed_after_select(page):
+                        print("✓ Proceed clicked!")
+                        page.wait_for_timeout(2000)
+                        
+                        take_screenshot(page, f"step2_after_proceed_{idx}.png")
+                        
+                        # STEP 3: Fill form
+                        print(f"\n[STEP 3] Filling booking form...")
+                        name = "Kazy Yap"
+                        phone = "9213145574"
+                        email = "boss.0024.kazy@gmail.com"
+                        
+                        if fill_booking_form(page, name, phone, email):
+                            print("✓ Form filled!")
+                            page.wait_for_timeout(500)
+                            
+                            take_screenshot(page, f"step3_form_filled_{idx}.png")
+                            
+                            # STEP 4: Click Proceed on form
+                            print(f"\n[STEP 4] Clicking Proceed on form...")
+                            if click_form_proceed(page):
+                                print("✓ Form Proceed clicked!")
+                                page.wait_for_timeout(2000)
+                                
+                                take_screenshot(page, f"step4_after_form_proceed_{idx}.png")
+                                
+                                # STEP 5: Terms and Proceed to Payment
+                                print(f"\n[STEP 5] Confirming booking...")
+                                if click_terms_and_proceed(page):
+                                    print("✓ Confirm & Proceed to Payment clicked!")
+                                    page.wait_for_timeout(3000)
+                                    
+                                    take_screenshot(page, f"step5_payment_page_{idx}.png")
+                                    
+                                    # STEP 6: Select QRPH payment
+                                    print(f"\n[STEP 6] Selecting payment method...")
+                                    if select_qrph_payment(page):
+                                        print(f"\n✓✓✓✓✓ BOOKING #{idx} COMPLETE!")
+                                        print(f"Booked: {selected_slot['court']} on {date} at {selected_slot['display']}")
+                                        
+                                        booked_slots.append(selected_slot)
+                                        
+                                        send_telegram_message(
+                                            f"✅ <b>BOOKING #{idx} COMPLETE!</b>\n\n"
+                                            f"📅 {date}\n"
+                                            f"🎯 {selected_slot['court']} @ {selected_slot['display']}\n\n"
+                                            f"💳 QR code sent! Please complete payment within 15 minutes."
+                                        )
+                                    else:
+                                        print(f"\n✗ Failed to select QRPH payment method for #{idx}")
+                                        send_telegram_message(f"❌ Failed to select QRPH payment for {selected_slot['court']}")
+                                else:
+                                    print(f"\n✗ Failed to proceed to payment for #{idx}")
+                                    send_telegram_message(f"❌ Failed to proceed to payment for {selected_slot['court']}")
+                            else:
+                                print(f"\n✗ Failed to click form Proceed for #{idx}")
+                                send_telegram_message(f"❌ Failed to click form Proceed for {selected_slot['court']}")
+                        else:
+                            print(f"\n✗ Failed to fill form for #{idx}")
+                            send_telegram_message(f"❌ Failed to fill form for {selected_slot['court']}")
+                    else:
+                        print(f"\n✗ Failed to click Proceed for #{idx}")
+                        send_telegram_message(f"❌ Failed to click Proceed for {selected_slot['court']}")
+                else:
+                    print(f"\n✗ Failed to select slot for #{idx}")
+                    send_telegram_message(f"❌ Failed to select {selected_slot['court']} @ {selected_slot['display']}")
+                
+                # ═══════════════════════════════════════════════════════════
+                # BALIK SA BOOKING PAGE PARA SA NEXT COURT
+                # ═══════════════════════════════════════════════════════════
+                if idx < len(slots_to_book):
+                    print(f"\n🔄 Returning to booking page for next court...")
+                    page.goto("https://app.onda.fit/book/thirsty-pickle", timeout=60000)
+                    page.wait_for_load_state("networkidle", timeout=60000)
+                    time.sleep(2)
             
             # ═══════════════════════════════════════════════════════════
-            # PROCEED TO BOOKING
+            # FINAL SUMMARY
             # ═══════════════════════════════════════════════════════════
-            print(f"\n[STEP 2] Clicking Proceed...")
-            if not click_proceed_after_select(page):
-                send_telegram_message("❌ Failed to click Proceed")
-                browser.close()
-                return
-            
-            page.wait_for_timeout(2000)
-            take_screenshot(page, "step2_after_proceed.png")
-            
-            # ═══════════════════════════════════════════════════════════
-            # FILL FORM
-            # ═══════════════════════════════════════════════════════════
-            print(f"\n[STEP 3] Filling booking form...")
-            name = "Kazy Yap"
-            phone = "9213145574"
-            email = "boss.0024.kazy@gmail.com"
-            
-            if not fill_booking_form(page, name, phone, email):
-                send_telegram_message("❌ Failed to fill form")
-                browser.close()
-                return
-            
-            take_screenshot(page, "step3_form_filled.png")
-            
-            # ═══════════════════════════════════════════════════════════
-            # CLICK FORM PROCEED
-            # ═══════════════════════════════════════════════════════════
-            print(f"\n[STEP 4] Clicking Proceed on form...")
-            if not click_form_proceed(page):
-                send_telegram_message("❌ Failed to click form Proceed")
-                browser.close()
-                return
-            
-            page.wait_for_timeout(2000)
-            take_screenshot(page, "step4_after_form_proceed.png")
-            
-            # ═══════════════════════════════════════════════════════════
-            # TERMS AND PAYMENT
-            # ═══════════════════════════════════════════════════════════
-            print(f"\n[STEP 5] Confirming booking...")
-            if not click_terms_and_proceed(page):
-                send_telegram_message("❌ Failed to proceed to payment")
-                browser.close()
-                return
-            
-            page.wait_for_timeout(3000)
-            take_screenshot(page, "step5_payment_page.png")
-            
-            # ═══════════════════════════════════════════════════════════
-            # QRPH PAYMENT
-            # ═══════════════════════════════════════════════════════════
-            print(f"\n[STEP 6] Selecting payment method...")
-            if select_qrph_payment(page):
-                print("\n✓✓✓✓✓ ALL BOOKINGS COMPLETE!")
-                court_list = "\n".join([f"  • {s['court']} @ {s['display']}" for s in slots_to_book])
+            if booked_slots:
+                court_list = "\n".join([f"  • {s['court']} @ {s['display']}" for s in booked_slots])
                 send_telegram_message(
-                    f"✅ <b>ALL BOOKINGS COMPLETE!</b>\n\n"
+                    f"🎉 <b>ALL BOOKINGS COMPLETE!</b>\n\n"
                     f"📅 {date}\n"
-                    f"📋 Booked {len(slots_to_book)} court(s):\n"
+                    f"📋 Booked {len(booked_slots)} court(s):\n"
                     f"{court_list}\n\n"
-                    f"💳 QR code has been sent! Please complete payment within 15 minutes."
+                    f"💳 Check each booking for QR code."
                 )
             else:
-                send_telegram_message("❌ Failed to select QRPH payment method")
+                send_telegram_message("❌ No bookings were successful!")
             
         except Exception as e:
             error_msg = f"❌ ERROR: {str(e)}"
