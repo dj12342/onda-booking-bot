@@ -703,25 +703,68 @@ def do_booking(trigger_data):
 # ═══════════════════════════════════════════════════════════════
 # FLASK WEBHOOK ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
-@app.route('/trigger', methods=['POST'])
+@app.route('/trigger', methods=['POST', 'GET'])
 def trigger():
     """Receive trigger from Google Apps Script"""
+    
+    # 🔥 SUPPORT BOTH POST AND GET
+    if request.method == 'GET':
+        return jsonify({
+            'status': 'ok', 
+            'message': 'Webhook is running. Send POST request with date and slots.'
+        }), 200
+    
     try:
-        data = request.json
+        # 🔥 GET DATA FROM BOTH JSON AND FORM
+        data = None
+        
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = request.form.to_dict()
+        
+        # 🔥 TRY TO PARSE IF STRING
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except:
+                pass
+        
         print(f"📨 Trigger received: {data}")
+        print(f"📨 Request method: {request.method}")
+        print(f"📨 Request data: {request.data}")
+        print(f"📨 Request form: {request.form}")
+        
+        # 🔥 VALIDATE
+        if not data:
+            return jsonify({
+                'status': 'error', 
+                'message': 'No data received'
+            }), 400
         
         if not data.get('date') or not data.get('slots'):
-            return jsonify({'status': 'error', 'message': 'Missing date or slots'}), 400
+            return jsonify({
+                'status': 'error', 
+                'message': f'Missing date or slots. Received: {data}'
+            }), 400
         
+        # 🔥 RUN BOOKING IN BACKGROUND
         thread = threading.Thread(target=do_booking, args=(data,))
         thread.daemon = True
         thread.start()
         
-        return jsonify({'status': 'processing', 'message': 'Booking started'}), 200
+        return jsonify({
+            'status': 'processing', 
+            'message': 'Booking started',
+            'received': data
+        }), 200
         
     except Exception as e:
         print(f"❌ Error: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({
+            'status': 'error', 
+            'message': str(e)
+        }), 500
 
 @app.route('/')
 def home():
