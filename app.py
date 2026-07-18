@@ -363,7 +363,7 @@ def select_qrph_payment(page):
             screenshot = page.screenshot(full_page=False)
             send_telegram_photo(
                 screenshot,
-                f"✅ <b>QR CODE READY!</b>\n\nPlease scan to complete payment."
+                f"✅ QR CODE READY!\n\nPlease scan to complete payment."
             )
             
             return True
