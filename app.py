@@ -1,4 +1,4 @@
-# app.py - Full Onda Booking Bot with Webhook + Telegram
+# app.py - Full Onda Booking Bot with Webhook + Telegram + Alternative Court Search
 from flask import Flask, request, jsonify
 from playwright.sync_api import sync_playwright
 import requests
@@ -375,10 +375,10 @@ def select_qrph_payment(page):
         return False
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN BOOKING FUNCTION - ONE BY ONE
+# MAIN BOOKING FUNCTION - ONE BY ONE WITH ALTERNATIVE SEARCH
 # ═══════════════════════════════════════════════════════════════
 def do_booking(trigger_data):
-    """Execute the full booking process - ONE BY ONE"""
+    """Execute the full booking process - ONE BY ONE with alternative search"""
     
     date = trigger_data.get('date')
     slots = trigger_data.get('slots', [])
@@ -480,7 +480,7 @@ def do_booking(trigger_data):
                 return
             
             # ═══════════════════════════════════════════════════════════
-            # BOOK ONE BY ONE
+            # BOOK ONE BY ONE WITH ALTERNATIVE SEARCH
             # ═══════════════════════════════════════════════════════════
             booked_slots = []
             
@@ -518,9 +518,10 @@ def do_booking(trigger_data):
                         date_btn.click()
                         page.wait_for_timeout(1500)
                 
-                # STEP 1: Select slot (with retry)
+                # STEP 1: Select slot (with retry and alternative)
                 print(f"\n[STEP 1] Selecting slot...")
                 success = False
+                
                 for attempt in range(3):
                     if select_slot(page, selected_slot):
                         print("✓ Slot selected!")
@@ -542,8 +543,56 @@ def do_booking(trigger_data):
                             pass
                 
                 if not success:
-                    print("✗ Failed to select slot after 3 attempts")
-                    send_telegram_message(f"❌ Failed to select {selected_slot['court']} @ {selected_slot['display']}")
+                    print(f"✗ {selected_slot['court']} is no longer available!")
+                    send_telegram_message(f"⚠️ {selected_slot['court']} @ {selected_slot['display']} is no longer available!")
+                    
+                    # 🔥 MAGHANAP NG ALTERNATIVE COURT
+                    print("🔍 Looking for alternative court...")
+                    
+                    # I-refresh ang availability
+                    date_api = datetime.strptime(date, "%m/%d/%Y").strftime("%Y-%m-%d")
+                    data = get_availability(page, date_api)
+                    available_slots = get_all_available_slots(data, target_times, time_display, court_names)
+                    
+                    # I-filter ang mga slots na hindi pa na-book
+                    booked_courts = [s['court'] for s in booked_slots]
+                    available_slots = [s for s in available_slots if s['court'] not in booked_courts]
+                    
+                    if available_slots:
+                        # Kunin ang unang available na court
+                        alternative_slot = available_slots[0]
+                        print(f"✅ Found alternative: {alternative_slot['court']} @ {alternative_slot['display']}")
+                        send_telegram_message(
+                            f"🔄 Found alternative court!\n"
+                            f"📋 Booking: {alternative_slot['court']} @ {alternative_slot['display']}"
+                        )
+                        
+                        # I-try i-book ang alternative
+                        print(f"\n[STEP 1 RETRY] Selecting alternative slot...")
+                        alt_success = False
+                        for attempt in range(3):
+                            if select_slot(page, alternative_slot):
+                                print("✓ Alternative slot selected!")
+                                page.wait_for_timeout(1000)
+                                alt_success = True
+                                break
+                            else:
+                                print(f"⚠️ Alternative attempt {attempt + 1} failed, retrying...")
+                                page.wait_for_timeout(1000)
+                        
+                        if alt_success:
+                            # Palitan ang selected_slot ng alternative
+                            selected_slot = alternative_slot
+                            success = True
+                        else:
+                            send_telegram_message(f"❌ Alternative slot also unavailable!")
+                            continue
+                    else:
+                        send_telegram_message(f"❌ No alternative slots available!")
+                        continue
+                
+                # If still not success, skip
+                if not success:
                     continue
                 
                 # Take screenshot
