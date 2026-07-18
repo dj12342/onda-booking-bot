@@ -15,8 +15,8 @@ app = Flask(__name__)
 # ═══════════════════════════════════════════════════════════════
 # TELEGRAM CONFIGURATION - PALITAN MO TO
 # ═══════════════════════════════════════════════════════════════
-TELEGRAM_BOT_TOKEN = "8911007553:AAHvDQCtA5R9yp2gQN-0irF6tPb-HjiOJ8k"
-TELEGRAM_CHAT_ID = "-5427084407"
+TELEGRAM_BOT_TOKEN = "8911007553:AAHvDQCtA5R9yp2gQN-0irF6tPb-HjiOJ8k"  # ← I-paste mula kay @BotFather
+TELEGRAM_CHAT_ID = "-5427084407"      # ← Chat ID mo (personal or group)
 
 # ═══════════════════════════════════════════════════════════════
 # BOOKING CONFIGURATION
@@ -126,20 +126,42 @@ def get_all_available_slots(data, target_times, time_display, court_names):
     return available_slots
 
 def select_slot(page, slot):
-    """Pumili ng isang slot sa UI"""
+    """Pumili ng isang slot sa UI - with multiple selection support"""
     try:
+        # Para sa multiple selection, kailangan i-click ang checkbox or button
+        # Hanapin ang slot na available
         selector = f'button[aria-label*="{slot["court"]}"][aria-label*="{slot["display"]}"][aria-label*="available"]'
         print(f"  Selecting: {slot['court']} @ {slot['display']}")
         
+        # I-try muna ang direct selector
         btn = page.locator(selector).first
         if btn.count() > 0:
             btn.click()
             page.wait_for_timeout(500)
             print(f"    ✓ Selected!")
             return True
-        else:
-            print(f"    ✗ Cannot find button")
-            return False
+        
+        # Alternative: Hanapin gamit ang text
+        alt_selector = f'button:has-text("{slot["court"]}")'
+        btns = page.locator(alt_selector).all()
+        for b in btns:
+            if slot["display"] in b.inner_text() and "available" in b.inner_text().lower():
+                b.click()
+                page.wait_for_timeout(500)
+                print(f"    ✓ Selected (alternative)!")
+                return True
+        
+        # Alternative 2: Hanapin sa calendar view
+        court_selector = f'div[data-court="{slot["court"]}"] button:has-text("{slot["display"]}")'
+        court_btn = page.locator(court_selector).first
+        if court_btn.count() > 0:
+            court_btn.click()
+            page.wait_for_timeout(500)
+            print(f"    ✓ Selected (court view)!")
+            return True
+        
+        print(f"    ✗ Cannot find button for {slot['court']} @ {slot['display']}")
+        return False
     except Exception as e:
         print(f"    ✗ Error: {e}")
         return False
@@ -463,15 +485,34 @@ def do_booking(trigger_data):
             print(f"📌 SELECTING {len(slots_to_book)} COURT(S) SABAY!")
             print('='*50)
             
-            # STEP 1: Select ALL slots (sabay)
+            # STEP 1: Select ALL slots (sabay) - WITH RETRY
             for idx, selected_slot in enumerate(slots_to_book, 1):
                 print(f"\n[STEP 1.{idx}] Selecting slot #{idx}: {selected_slot['court']} @ {selected_slot['display']}")
-                if select_slot(page, selected_slot):
-                    print(f"  ✓ Slot #{idx} selected!")
-                    page.wait_for_timeout(500)
-                else:
-                    print(f"  ✗ Failed to select slot #{idx}")
-                    send_telegram_message(f"❌ Failed to select {selected_slot['court']}")
+                
+                # I-try 3 times
+                success = False
+                for attempt in range(3):
+                    if select_slot(page, selected_slot):
+                        print(f"  ✓ Slot #{idx} selected!")
+                        success = True
+                        break
+                    else:
+                        print(f"  ⚠️ Attempt {attempt + 1} failed, retrying...")
+                        page.wait_for_timeout(1000)
+                        # I-refresh ang calendar view
+                        try:
+                            page.get_by_label("Select booking date").click()
+                            page.wait_for_timeout(1500)
+                            date_btn = page.locator(f'button[data-day="{date}"]').first
+                            if date_btn.count() > 0 and not date_btn.is_disabled():
+                                date_btn.click()
+                                page.wait_for_timeout(1500)
+                        except:
+                            pass
+                
+                if not success:
+                    print(f"  ✗ Failed to select slot #{idx} after 3 attempts")
+                    send_telegram_message(f"❌ Failed to select {selected_slot['court']} @ {selected_slot['display']}")
                     browser.close()
                     return
             
