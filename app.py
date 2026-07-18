@@ -1,4 +1,4 @@
-# app.py - Full Onda Booking Bot with Webhook + Telegram + Multiple Courts
+# app.py - Full Onda Booking Bot with Webhook + Telegram + Multiple Courts (Sabay)
 from flask import Flask, request, jsonify
 from playwright.sync_api import sync_playwright
 import requests
@@ -418,11 +418,11 @@ def do_booking(trigger_data):
                 print(f"    - {slot['court']} @ {slot['display']}")
             
             # ═══════════════════════════════════════════════════════════
-            # PUMILI NG SLOTS - KAHIT ANONG COURT BASTA AVAILABLE
+            # PUMILI NG SLOTS - KAHIT ANONG COURT BASTA AVAILABLE (SABAY)
             # ═══════════════════════════════════════════════════════════
             all_available = available_slots.copy()
             
-            # Piliin kung ilang slots ang i-bo-book (max 2)
+            # Piliin kung ilang slots ang i-bo-book (max MAX_COURTS_TO_BOOK)
             slots_to_book = []
             court_names_booked = []
             
@@ -457,120 +457,99 @@ def do_booking(trigger_data):
                 return
             
             # ═══════════════════════════════════════════════════════════
-            # BOOKING STEPS - LOOP PARA SA BAWAT SLOT
+            # BOOKING STEPS - PUMILI NG LAHAT NG SLOTS SABAY
             # ═══════════════════════════════════════════════════════════
+            print(f"\n{'='*50}")
+            print(f"📌 SELECTING {len(slots_to_book)} COURT(S) SABAY!")
+            print('='*50)
+            
+            # STEP 1: Select ALL slots (sabay)
             for idx, selected_slot in enumerate(slots_to_book, 1):
-                print(f"\n{'='*50}")
-                print(f"📌 BOOKING #{idx}: {selected_slot['court']} @ {selected_slot['display']}")
-                print('='*50)
-                
-                # I-click ulit ang date (para fresh)
-                try:
-                    page.get_by_label("Select booking date").click()
-                    page.wait_for_timeout(1500)
-                    date_btn = page.locator(f'button[data-day="{date}"]').first
-                    if date_btn.count() > 0 and not date_btn.is_disabled():
-                        date_btn.click()
-                        page.wait_for_timeout(1500)
-                except:
-                    pass
-                
-                # STEP 1: Select slot
-                print(f"\n[STEP 1] Selecting slot...")
+                print(f"\n[STEP 1.{idx}] Selecting slot #{idx}: {selected_slot['court']} @ {selected_slot['display']}")
                 if select_slot(page, selected_slot):
-                    print("✓ Slot selected!")
-                    page.wait_for_timeout(1000)
+                    print(f"  ✓ Slot #{idx} selected!")
+                    page.wait_for_timeout(500)
+                else:
+                    print(f"  ✗ Failed to select slot #{idx}")
+                    send_telegram_message(f"❌ Failed to select {selected_slot['court']}")
+                    browser.close()
+                    return
+            
+            # Take screenshot after selecting all slots
+            take_screenshot(page, "step1_all_slots_selected.png")
+            
+            # STEP 2: Click Proceed (isang beses lang!)
+            print(f"\n[STEP 2] Clicking Proceed...")
+            if click_proceed_after_select(page):
+                print("✓ Proceed clicked!")
+                page.wait_for_timeout(2000)
+                
+                # Take screenshot
+                take_screenshot(page, "step2_after_proceed.png")
+                
+                # STEP 3: Fill form
+                print(f"\n[STEP 3] Filling booking form...")
+                name = "Kazy Yap"
+                phone = "9213145574"
+                email = "boss.0024.kazy@gmail.com"
+                
+                if fill_booking_form(page, name, phone, email):
+                    print("✓ Form filled!")
+                    page.wait_for_timeout(500)
                     
                     # Take screenshot
-                    take_screenshot(page, f"step1_slot_selected_{idx}.png")
+                    take_screenshot(page, "step3_form_filled.png")
                     
-                    # STEP 2: Click Proceed
-                    print(f"\n[STEP 2] Clicking Proceed...")
-                    if click_proceed_after_select(page):
-                        print("✓ Proceed clicked!")
+                    # STEP 4: Click Proceed on form
+                    print(f"\n[STEP 4] Clicking Proceed on form...")
+                    if click_form_proceed(page):
+                        print("✓ Form Proceed clicked!")
                         page.wait_for_timeout(2000)
                         
                         # Take screenshot
-                        take_screenshot(page, f"step2_after_proceed_{idx}.png")
+                        take_screenshot(page, "step4_after_form_proceed.png")
                         
-                        # STEP 3: Fill form
-                        print(f"\n[STEP 3] Filling booking form...")
-                        name = "Kazy Yap"
-                        phone = "9213145574"
-                        email = "boss.0024.kazy@gmail.com"
-                        
-                        if fill_booking_form(page, name, phone, email):
-                            print("✓ Form filled!")
-                            page.wait_for_timeout(500)
+                        # STEP 5: Terms and Proceed to Payment
+                        print(f"\n[STEP 5] Confirming booking...")
+                        if click_terms_and_proceed(page):
+                            print("✓ Confirm & Proceed to Payment clicked!")
+                            page.wait_for_timeout(3000)
                             
                             # Take screenshot
-                            take_screenshot(page, f"step3_form_filled_{idx}.png")
+                            take_screenshot(page, "step5_payment_page.png")
                             
-                            # STEP 4: Click Proceed on form
-                            print(f"\n[STEP 4] Clicking Proceed on form...")
-                            if click_form_proceed(page):
-                                print("✓ Form Proceed clicked!")
-                                page.wait_for_timeout(2000)
+                            # STEP 6: Select QRPH payment
+                            print(f"\n[STEP 6] Selecting payment method...")
+                            if select_qrph_payment(page):
+                                print("\n✓✓✓✓✓ ALL BOOKINGS COMPLETE!")
+                                print(f"Booked {len(slots_to_book)} courts on {date}:")
+                                for slot in slots_to_book:
+                                    print(f"  - {slot['court']} @ {slot['display']}")
+                                print("✓ QRPH payment method selected - QR code should be displayed!")
                                 
-                                # Take screenshot
-                                take_screenshot(page, f"step4_after_form_proceed_{idx}.png")
-                                
-                                # STEP 5: Terms and Proceed to Payment
-                                print(f"\n[STEP 5] Confirming booking...")
-                                if click_terms_and_proceed(page):
-                                    print("✓ Confirm & Proceed to Payment clicked!")
-                                    page.wait_for_timeout(3000)
-                                    
-                                    # Take screenshot
-                                    take_screenshot(page, f"step5_payment_page_{idx}.png")
-                                    
-                                    # STEP 6: Select QRPH payment
-                                    print(f"\n[STEP 6] Selecting payment method...")
-                                    if select_qrph_payment(page):
-                                        print(f"\n✓✓✓✓✓ BOOKING #{idx} COMPLETE!")
-                                        print(f"Booked: {selected_slot['court']} on {date} at {selected_slot['display']}")
-                                        print("✓ QRPH payment method selected - QR code should be displayed!")
-                                        
-                                        send_telegram_message(
-                                            f"✅ <b>BOOKING #{idx} COMPLETE!</b>\n\n"
-                                            f"📅 {date}\n"
-                                            f"🎯 {selected_slot['court']} @ {selected_slot['display']}\n\n"
-                                            f"💳 QR code has been sent! Please complete payment within 15 minutes."
-                                        )
-                                        
-                                        # Para sa multiple bookings, hintayin mag-load at bumalik sa booking page
-                                        if idx < len(slots_to_book):
-                                            time.sleep(3)
-                                            # Balik sa booking page
-                                            page.goto("https://app.onda.fit/book/thirsty-pickle", timeout=60000)
-                                            page.wait_for_load_state("networkidle", timeout=60000)
-                                            print("✓ Returned to booking page for next slot!")
-                                    else:
-                                        print(f"\n✗ Failed to select QRPH payment method for #{idx}")
-                                        send_telegram_message(f"❌ Failed to select QRPH payment method for {selected_slot['court']}")
-                                else:
-                                    print(f"\n✗ Failed to proceed to payment for #{idx}")
-                                    send_telegram_message(f"❌ Failed to proceed to payment for {selected_slot['court']}")
+                                court_list = "\n".join([f"  • {s['court']} @ {s['display']}" for s in slots_to_book])
+                                send_telegram_message(
+                                    f"✅ <b>ALL BOOKINGS COMPLETE!</b>\n\n"
+                                    f"📅 {date}\n"
+                                    f"📋 Booked {len(slots_to_book)} court(s):\n"
+                                    f"{court_list}\n\n"
+                                    f"💳 QR code has been sent! Please complete payment within 15 minutes."
+                                )
                             else:
-                                print(f"\n✗ Failed to click form Proceed for #{idx}")
-                                send_telegram_message(f"❌ Failed to click form Proceed for {selected_slot['court']}")
+                                print("\n✗ Failed to select QRPH payment method")
+                                send_telegram_message("❌ Failed to select QRPH payment method")
                         else:
-                            print(f"\n✗ Failed to fill form for #{idx}")
-                            send_telegram_message(f"❌ Failed to fill form for {selected_slot['court']}")
+                            print("\n✗ Failed to proceed to payment")
+                            send_telegram_message("❌ Failed to proceed to payment")
                     else:
-                        print(f"\n✗ Failed to click Proceed for #{idx}")
-                        send_telegram_message(f"❌ Failed to click Proceed for {selected_slot['court']}")
+                        print("\n✗ Failed to click form Proceed")
+                        send_telegram_message("❌ Failed to click form Proceed")
                 else:
-                    print(f"\n✗ Failed to select slot for #{idx}")
-                    send_telegram_message(f"❌ Failed to select slot for {selected_slot['court']}")
-            
-            # Final summary
-            send_telegram_message(
-                f"🎉 <b>ALL BOOKINGS COMPLETE!</b>\n\n"
-                f"📅 {date}\n"
-                f"📋 Booked {len(slots_to_book)} court(s):\n"
-                + "\n".join([f"  • {s['court']} @ {s['display']}" for s in slots_to_book])
-            )
+                    print("\n✗ Failed to fill form")
+                    send_telegram_message("❌ Failed to fill form")
+            else:
+                print("\n✗ Failed to click Proceed")
+                send_telegram_message("❌ Failed to click Proceed")
             
         except Exception as e:
             error_msg = f"❌ ERROR: {str(e)}"
