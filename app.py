@@ -454,9 +454,9 @@ def do_booking(trigger_data):
                     
                     # STEP 3: Fill form
                     print(f"\n[STEP 3] Filling booking form...")
-                    name = "Delfin C. Carlos Jr."
+                    name = "Kazy Yap"
                     phone = "9213145574"
-                    email = "delfincarlos2828@gmail.com"
+                    email = "boss.0024.kazy@gmail.com"
                     
                     if fill_booking_form(page, name, phone, email):
                         print("✓ Form filled!")
