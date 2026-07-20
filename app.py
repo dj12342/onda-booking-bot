@@ -1,3 +1,4 @@
+# app.py - Full Onda Booking Bot with Webhook + Telegram + Alternative Court Search
 from flask import Flask, request, jsonify
 from playwright.sync_api import sync_playwright
 import requests
@@ -11,13 +12,23 @@ from io import BytesIO
 
 app = Flask(__name__)
 
+# ═══════════════════════════════════════════════════════════════
+# TELEGRAM CONFIGURATION - PALITAN MO TO
+# ═══════════════════════════════════════════════════════════════
 TELEGRAM_BOT_TOKEN = "8911007553:AAHvDQCtA5R9yp2gQN-0irF6tPb-HjiOJ8k"
-TELEGRAM_CHAT_ID = "-1004305386663"
+TELEGRAM_CHAT_ID = "-5427084407"
 
+# ═══════════════════════════════════════════════════════════════
+# BOOKING CONFIGURATION
+# ═══════════════════════════════════════════════════════════════
 MAX_COURTS_TO_BOOK = 2
 BOOK_ANY_AVAILABLE = True
 
+# ═══════════════════════════════════════════════════════════════
+# TELEGRAM FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
 def send_telegram_message(message):
+    """Send text message to Telegram"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         data = {
@@ -26,25 +37,27 @@ def send_telegram_message(message):
             'parse_mode': 'HTML'
         }
         response = requests.post(url, data=data)
-        print(f"✅ Telegram message sent to GC: {TELEGRAM_CHAT_ID}")
+        print(f"✅ Telegram message sent")
         return True
     except Exception as e:
         print(f"❌ Telegram error: {e}")
         return False
 
 def send_telegram_photo(photo_bytes, caption=""):
+    """Send photo to Telegram"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
         files = {'photo': ('screenshot.png', photo_bytes, 'image/png')}
         data = {'chat_id': TELEGRAM_CHAT_ID, 'caption': caption}
         response = requests.post(url, files=files, data=data)
-        print(f"✅ Telegram photo sent to GC: {TELEGRAM_CHAT_ID}")
+        print(f"✅ Telegram photo sent")
         return True
     except Exception as e:
         print(f"❌ Telegram photo error: {e}")
         return False
 
 def take_screenshot(page, filename="screenshot.png"):
+    """Take screenshot and send to Telegram"""
     try:
         screenshot_bytes = page.screenshot(full_page=False)
         send_telegram_photo(screenshot_bytes, "📸 Booking progress screenshot")
@@ -56,7 +69,11 @@ def take_screenshot(page, filename="screenshot.png"):
         print(f"❌ Failed to take screenshot: {e}")
         return None
 
+# ═══════════════════════════════════════════════════════════════
+# BOOKING FUNCTIONS
+# ═══════════════════════════════════════════════════════════════
 def get_availability(page, date_api):
+    """Kumuha ng availability data mula sa API para sa specific date"""
     facility_id = "5f8786bd-dc61-4509-b893-74cda8f783f7"
     api_url = f"https://app.onda.fit/api/public/facilities/{facility_id}/date-availability"
     
@@ -80,6 +97,7 @@ def get_availability(page, date_api):
     return response.json()
 
 def get_all_available_slots(data, target_times, time_display, court_names):
+    """Kunin ang lahat ng available slots sa target times"""
     if not data.get("success"):
         return []
     
@@ -103,11 +121,18 @@ def get_all_available_slots(data, target_times, time_display, court_names):
     return available_slots
 
 def select_slot(page, slot):
+    """Pumili ng isang slot sa UI - FIXED with correct aria-label"""
     try:
         court = slot['court']
         display = slot['display']
         print(f"  Selecting: {court} @ {display}")
         
+        # ═══════════════════════════════════════════════════════════
+        # ACTUAL ARIA-LABEL: "Court 4: Mango Wing 11 PM to 12 AM available"
+        # Kailangan hanapin ang button na may aria-label na ganito
+        # ═══════════════════════════════════════════════════════════
+        
+        # Method 1: Exact match sa aria-label (PINAKAMAHUSAY)
         selector1 = f'button[aria-label="{court}: Mango Wing {display} available"]'
         btn = page.locator(selector1).first
         if btn.count() > 0:
@@ -119,6 +144,7 @@ def select_slot(page, slot):
             except Exception as e:
                 print(f"    ⚠️ Click failed: {e}")
         
+        # Method 2: Contains sa aria-label (Hindi exact)
         selector2 = f'button[aria-label*="{court}"][aria-label*="{display}"][aria-label*="available"]'
         btn = page.locator(selector2).first
         if btn.count() > 0:
@@ -130,6 +156,7 @@ def select_slot(page, slot):
             except Exception as e:
                 print(f"    ⚠️ Click failed: {e}")
         
+        # Method 3: Contains court at available sa aria-label
         selector3 = f'button[aria-label*="{court}"][aria-label*="available"]'
         btn = page.locator(selector3).first
         if btn.count() > 0:
@@ -143,6 +170,7 @@ def select_slot(page, slot):
             except Exception as e:
                 print(f"    ⚠️ Click failed: {e}")
         
+        # Method 4: Hanapin ang button na may "available" at court name
         selector4 = f'button[aria-label*="available"]'
         btns = page.locator(selector4).all()
         for b in btns:
@@ -156,6 +184,7 @@ def select_slot(page, slot):
             except:
                 pass
         
+        # Method 5: Hanapin ang button na may court name (last resort)
         selector5 = f'button[aria-label*="{court}"]'
         btns = page.locator(selector5).all()
         for b in btns:
@@ -171,6 +200,7 @@ def select_slot(page, slot):
         
         print(f"    ✗ Cannot find button for {court} @ {display}")
         
+        # Take screenshot para makita ang UI
         try:
             screenshot = page.screenshot(full_page=False)
             send_telegram_photo(screenshot, f"🔍 Cannot find {court} @ {display}")
@@ -184,6 +214,7 @@ def select_slot(page, slot):
         return False
 
 def click_proceed_after_select(page):
+    """Hanapin at i-click ang Proceed button pagkatapos pumili ng court"""
     try:
         proceed_btn = page.locator('button:has-text("Proceed")').first
         
@@ -200,6 +231,7 @@ def click_proceed_after_select(page):
         return False
 
 def fill_booking_form(page, name, phone, email):
+    """Punan ang booking form"""
     try:
         print("Filling Full Name...")
         name_input = page.locator('input[aria-label="Full Name"]').first
@@ -257,6 +289,7 @@ def fill_booking_form(page, name, phone, email):
         return False
 
 def click_form_proceed(page):
+    """I-click ang Proceed button sa form"""
     try:
         print("Clicking Proceed button on form...")
         proceed_btn = page.locator('button:has-text("Proceed")').first
@@ -273,6 +306,7 @@ def click_form_proceed(page):
         return False
 
 def click_terms_and_proceed(page):
+    """I-click ang terms checkbox at Proceed button"""
     try:
         print("  Waiting 2 seconds before clicking Terms checkbox...")
         time.sleep(2)
@@ -307,6 +341,7 @@ def click_terms_and_proceed(page):
         return False
 
 def select_qrph_payment(page):
+    """Piliin ang QRPH payment method at mag-screenshot"""
     try:
         print("Waiting for payment options to load...")
         page.wait_for_timeout(2000)
@@ -324,6 +359,7 @@ def select_qrph_payment(page):
             page.wait_for_timeout(3000)
             print("✓ QR code should be visible now!")
             
+            # 🔥 TAKE SCREENSHOT OF QR CODE
             screenshot = page.screenshot(full_page=False)
             send_telegram_photo(
                 screenshot,
@@ -338,7 +374,12 @@ def select_qrph_payment(page):
         print(f"✗ Error selecting QRPH: {e}")
         return False
 
+# ═══════════════════════════════════════════════════════════════
+# MAIN BOOKING FUNCTION - ONE BY ONE WITH ALTERNATIVE SEARCH
+# ═══════════════════════════════════════════════════════════════
 def do_booking(trigger_data):
+    """Execute the full booking process - ONE BY ONE with alternative search"""
+    
     date = trigger_data.get('date')
     slots = trigger_data.get('slots', [])
     
@@ -357,6 +398,9 @@ def do_booking(trigger_data):
         page = browser.new_page()
         
         try:
+            # ═══════════════════════════════════════════════════════════
+            # COURT NAMES MAPPING
+            # ═══════════════════════════════════════════════════════════
             court_names = {
                 "c8c8fb0a-518e-4838-b006-8f200e477788": "Court 1",
                 "df1a98c3-deb2-4721-949a-d5a1e54fdce0": "Court 2",
@@ -367,6 +411,9 @@ def do_booking(trigger_data):
                 "648d72bb-0789-40c6-9557-66709da121ba": "Court 7"
             }
             
+            # ═══════════════════════════════════════════════════════════
+            # TIME SLOTS: Evening (6 PM - 12 AM)
+            # ═══════════════════════════════════════════════════════════
             target_times = ["18:00", "19:00", "20:00", "21:00", "22:00", "23:00"]
             time_display = {
                 "18:00": "6 PM to 7 PM",
@@ -377,6 +424,9 @@ def do_booking(trigger_data):
                 "23:00": "11 PM to 12 AM"
             }
             
+            # ═══════════════════════════════════════════════════════════
+            # OPEN PAGE AND CHECK AVAILABILITY
+            # ═══════════════════════════════════════════════════════════
             print("Opening booking page...")
             page.goto("https://app.onda.fit/book/thirsty-pickle", timeout=60000)
             page.wait_for_load_state("networkidle", timeout=60000)
@@ -396,6 +446,9 @@ def do_booking(trigger_data):
             for slot in available_slots:
                 print(f"    - {slot['court']} @ {slot['display']}")
             
+            # ═══════════════════════════════════════════════════════════
+            # PUMILI NG SLOTS - MAX 2
+            # ═══════════════════════════════════════════════════════════
             slots_to_book = []
             court_names_booked = []
             
@@ -426,6 +479,9 @@ def do_booking(trigger_data):
                 browser.close()
                 return
             
+            # ═══════════════════════════════════════════════════════════
+            # BOOK ONE BY ONE WITH ALTERNATIVE SEARCH
+            # ═══════════════════════════════════════════════════════════
             booked_slots = []
             
             for idx, selected_slot in enumerate(slots_to_book, 1):
@@ -433,6 +489,7 @@ def do_booking(trigger_data):
                 print(f"📌 BOOKING #{idx}: {selected_slot['court']} @ {selected_slot['display']}")
                 print('='*50)
                 
+                # I-click ang calendar at piliin ang date
                 try:
                     page.get_by_label("Select booking date").click()
                     page.wait_for_timeout(1000)
@@ -461,6 +518,7 @@ def do_booking(trigger_data):
                         date_btn.click()
                         page.wait_for_timeout(1500)
                 
+                # STEP 1: Select slot (with retry and alternative)
                 print(f"\n[STEP 1] Selecting slot...")
                 success = False
                 
@@ -473,6 +531,7 @@ def do_booking(trigger_data):
                     else:
                         print(f"⚠️ Attempt {attempt + 1} failed, retrying...")
                         page.wait_for_timeout(1000)
+                        # I-refresh ang calendar
                         try:
                             page.get_by_label("Select booking date").click()
                             page.wait_for_timeout(1000)
@@ -487,16 +546,20 @@ def do_booking(trigger_data):
                     print(f"✗ {selected_slot['court']} is no longer available!")
                     send_telegram_message(f"⚠️ {selected_slot['court']} @ {selected_slot['display']} is no longer available!")
                     
+                    # 🔥 MAGHANAP NG ALTERNATIVE COURT
                     print("🔍 Looking for alternative court...")
                     
+                    # I-refresh ang availability
                     date_api = datetime.strptime(date, "%m/%d/%Y").strftime("%Y-%m-%d")
                     data = get_availability(page, date_api)
                     available_slots = get_all_available_slots(data, target_times, time_display, court_names)
                     
+                    # I-filter ang mga slots na hindi pa na-book
                     booked_courts = [s['court'] for s in booked_slots]
                     available_slots = [s for s in available_slots if s['court'] not in booked_courts]
                     
                     if available_slots:
+                        # Kunin ang unang available na court
                         alternative_slot = available_slots[0]
                         print(f"✅ Found alternative: {alternative_slot['court']} @ {alternative_slot['display']}")
                         send_telegram_message(
@@ -504,6 +567,7 @@ def do_booking(trigger_data):
                             f"📋 Booking: {alternative_slot['court']} @ {alternative_slot['display']}"
                         )
                         
+                        # I-try i-book ang alternative
                         print(f"\n[STEP 1 RETRY] Selecting alternative slot...")
                         alt_success = False
                         for attempt in range(3):
@@ -517,6 +581,7 @@ def do_booking(trigger_data):
                                 page.wait_for_timeout(1000)
                         
                         if alt_success:
+                            # Palitan ang selected_slot ng alternative
                             selected_slot = alternative_slot
                             success = True
                         else:
@@ -526,11 +591,14 @@ def do_booking(trigger_data):
                         send_telegram_message(f"❌ No alternative slots available!")
                         continue
                 
+                # If still not success, skip
                 if not success:
                     continue
                 
+                # Take screenshot
                 take_screenshot(page, f"step1_slot_selected_{idx}.png")
                 
+                # STEP 2: Click Proceed
                 print(f"\n[STEP 2] Clicking Proceed...")
                 if click_proceed_after_select(page):
                     print("✓ Proceed clicked!")
@@ -538,6 +606,7 @@ def do_booking(trigger_data):
                     
                     take_screenshot(page, f"step2_after_proceed_{idx}.png")
                     
+                    # STEP 3: Fill form
                     print(f"\n[STEP 3] Filling booking form...")
                     name = "Kazy Yap"
                     phone = "9213145574"
@@ -549,6 +618,7 @@ def do_booking(trigger_data):
                         
                         take_screenshot(page, f"step3_form_filled_{idx}.png")
                         
+                        # STEP 4: Click Proceed on form
                         print(f"\n[STEP 4] Clicking Proceed on form...")
                         if click_form_proceed(page):
                             print("✓ Form Proceed clicked!")
@@ -556,6 +626,7 @@ def do_booking(trigger_data):
                             
                             take_screenshot(page, f"step4_after_form_proceed_{idx}.png")
                             
+                            # STEP 5: Terms and Proceed to Payment
                             print(f"\n[STEP 5] Confirming booking...")
                             if click_terms_and_proceed(page):
                                 print("✓ Confirm & Proceed to Payment clicked!")
@@ -563,6 +634,7 @@ def do_booking(trigger_data):
                                 
                                 take_screenshot(page, f"step5_payment_page_{idx}.png")
                                 
+                                # STEP 6: Select QRPH payment
                                 print(f"\n[STEP 6] Selecting payment method...")
                                 if select_qrph_payment(page):
                                     print(f"\n✓✓✓✓✓ BOOKING #{idx} COMPLETE!")
@@ -592,12 +664,18 @@ def do_booking(trigger_data):
                     print(f"\n✗ Failed to click Proceed for #{idx}")
                     send_telegram_message(f"❌ Failed to click Proceed for {selected_slot['court']}")
                 
+                # ═══════════════════════════════════════════════════════════
+                # BALIK SA BOOKING PAGE PARA SA NEXT COURT
+                # ═══════════════════════════════════════════════════════════
                 if idx < len(slots_to_book):
                     print(f"\n🔄 Returning to booking page for next court...")
                     page.goto("https://app.onda.fit/book/thirsty-pickle", timeout=60000)
                     page.wait_for_load_state("networkidle", timeout=60000)
                     time.sleep(2)
             
+            # ═══════════════════════════════════════════════════════════
+            # FINAL SUMMARY
+            # ═══════════════════════════════════════════════════════════
             if booked_slots:
                 court_list = "\n".join([f"  • {s['court']} @ {s['display']}" for s in booked_slots])
                 send_telegram_message(
@@ -622,8 +700,14 @@ def do_booking(trigger_data):
         
         browser.close()
 
+# ═══════════════════════════════════════════════════════════════
+# FLASK WEBHOOK ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
 @app.route('/trigger', methods=['POST', 'GET'])
 def trigger():
+    """Receive trigger from Google Apps Script"""
+    
+    # 🔥 SUPPORT BOTH POST AND GET
     if request.method == 'GET':
         return jsonify({
             'status': 'ok', 
@@ -631,6 +715,7 @@ def trigger():
         }), 200
     
     try:
+        # 🔥 GET DATA FROM BOTH JSON AND FORM
         data = None
         
         if request.is_json:
@@ -638,6 +723,7 @@ def trigger():
         else:
             data = request.form.to_dict()
         
+        # 🔥 TRY TO PARSE IF STRING
         if isinstance(data, str):
             try:
                 data = json.loads(data)
@@ -649,6 +735,7 @@ def trigger():
         print(f"📨 Request data: {request.data}")
         print(f"📨 Request form: {request.form}")
         
+        # 🔥 VALIDATE
         if not data:
             return jsonify({
                 'status': 'error', 
@@ -661,6 +748,7 @@ def trigger():
                 'message': f'Missing date or slots. Received: {data}'
             }), 400
         
+        # 🔥 RUN BOOKING IN BACKGROUND
         thread = threading.Thread(target=do_booking, args=(data,))
         thread.daemon = True
         thread.start()
@@ -686,6 +774,9 @@ def home():
 def health():
     return jsonify({'status': 'healthy'}), 200
 
+# ═══════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
