@@ -12,9 +12,6 @@ from io import BytesIO
 
 app = Flask(__name__)
 
-# ═══════════════════════════════════════════════════════════════
-# TELEGRAM CONFIGURATION - PALITAN MO TO
-# ═══════════════════════════════════════════════════════════════
 TELEGRAM_BOT_TOKEN = "8911007553:AAHvDQCtA5R9yp2gQN-0irF6tPb-HjiOJ8k"
 TELEGRAM_CHAT_ID = "-1004305386663"
 
